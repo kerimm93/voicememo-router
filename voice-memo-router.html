@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Voice Memo Router</title>
+<style>
+:root {
+  --bg:#111110;--bg-mid:#161614;--surface:#1c1c1a;--surface-2:#222220;--surface-3:#2a2a27;
+  --border:#2c2c29;--border-mid:#3a3a36;
+  --ink:#e6e4dc;--ink-mid:#9a9890;--ink-dim:#4e4c46;
+  --accent:#c4b48e;--accent-dim:#6e6248;
+  --green:#6a9870;--green-bg:rgba(106,152,112,.10);
+  --red:#9e5a52;--red-bg:rgba(158,90,82,.10);
+  --blue:#6282a0;--blue-bg:rgba(98,130,160,.10);
+  --orange:#b07848;--orange-bg:rgba(176,120,72,.10);
+  --purple:#7e6a9e;--purple-bg:rgba(126,106,158,.10);
+  --yellow:#b09a48;--yellow-bg:rgba(176,154,72,.10);
+  --teal:#4a9090;--teal-bg:rgba(74,144,144,.10);
+  --mono:'JetBrains Mono','Courier New',monospace;
+  --r:5px;
+}
+[data-theme="light"]{
+  --bg:#f5f4f0;--bg-mid:#eeede8;--surface:#e8e7e1;--surface-2:#e0dfd8;--surface-3:#d8d6ce;
+  --border:#ccc9be;--border-mid:#b8b5a8;
+  --ink:#1a1a18;--ink-mid:#4a4844;--ink-dim:#9a9890;
+  --accent:#7a6030;--accent-dim:#b09060;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--ink);font-family:'Lato','Segoe UI',sans-serif;font-size:15px;line-height:1.6;min-height:100vh;}
+.wrap{max-width:880px;margin:0 auto;padding:28px 18px 80px;}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px;}
+.app-title{font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);}
+
+/* BUTTONS */
+button{font-family:inherit;font-size:13px;cursor:pointer;border:none;border-radius:var(--r);padding:6px 14px;transition:opacity .15s,background .15s;}
+button:disabled{opacity:.35;cursor:not-allowed;}
+.btn-ghost{background:transparent;border:1px solid var(--border-mid);color:var(--ink-mid);}
+.btn-ghost:hover:not(:disabled){border-color:var(--accent-dim);color:var(--accent);}
+.btn-primary{background:var(--accent);color:var(--bg);font-weight:600;}
+.btn-primary:hover:not(:disabled){opacity:.85;}
+.btn-copy{font-size:11px;padding:3px 9px;background:var(--surface-3);border:1px solid var(--border);color:var(--ink-mid);border-radius:3px;cursor:pointer;}
+.btn-copy:hover{color:var(--ink);border-color:var(--border-mid);}
+.btn-copy.copied{color:var(--green);border-color:var(--green);}
+.btn-apply{background:var(--green-bg);border:1px solid var(--green);color:var(--green);}
+.btn-apply:hover:not(:disabled){opacity:.8;}
+
+/* DROP ZONE */
+.drop-zone{border:2px dashed var(--border-mid);border-radius:8px;padding:34px 24px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;background:var(--surface);margin-bottom:18px;position:relative;}
+.drop-zone.drag-over{border-color:var(--accent);background:rgba(196,180,142,.06);}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;}
+.drop-icon{font-size:24px;margin-bottom:6px;opacity:.4;}
+.drop-label{color:var(--ink-mid);font-size:14px;}
+.drop-label strong{color:var(--accent);}
+.drop-hint{color:var(--ink-dim);font-size:11px;margin-top:3px;font-family:var(--mono);}
+
+/* HITL PANEL */
+.hitl-panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 18px;margin-bottom:18px;}
+.hitl-title{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);margin-bottom:14px;}
+.hitl-steps{display:flex;flex-direction:column;gap:14px;}
+.hitl-step{display:flex;gap:10px;}
+.step-n{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent-dim);min-width:18px;padding-top:2px;}
+.step-body{flex:1;}
+.step-label{font-size:13px;font-weight:600;margin-bottom:2px;}
+.step-hint{font-size:12px;color:var(--ink-mid);margin-bottom:7px;}
+.prompt-box,.json-box{width:100%;background:var(--bg-mid);border:1px solid var(--border);color:var(--ink-mid);font-family:var(--mono);font-size:11px;border-radius:var(--r);padding:9px 11px;resize:vertical;line-height:1.5;margin:6px 0;}
+.prompt-box{min-height:88px;}
+.json-box{min-height:64px;}
+.prompt-box:focus,.json-box:focus{outline:none;border-color:var(--accent-dim);}
+
+/* TOOLBAR */
+.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+.file-count{font-size:12px;font-family:var(--mono);color:var(--ink-dim);flex:1;}
+
+/* DEST BADGES */
+.dbadge{font-size:11px;font-family:var(--mono);padding:3px 9px;border-radius:20px;font-weight:600;letter-spacing:.04em;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;}
+.d-daily      {background:var(--blue-bg);  color:var(--blue);  border:1px solid rgba(98,130,160,.3);}
+.d-zettelkasten{background:var(--purple-bg);color:var(--purple);border:1px solid rgba(126,106,158,.3);}
+.d-app-idee   {background:var(--orange-bg); color:var(--orange);border:1px solid rgba(176,120,72,.3);}
+.d-lesenotiz  {background:var(--green-bg);  color:var(--green); border:1px solid rgba(106,152,112,.3);}
+.d-notion     {background:var(--yellow-bg); color:var(--yellow);border:1px solid rgba(176,154,72,.3);}
+.d-split      {background:var(--teal-bg);   color:var(--teal);  border:1px solid rgba(74,144,144,.3);}
+.d-unsicher   {background:var(--surface-3); color:var(--ink-mid);border:1px solid var(--border);}
+
+/* SECTION */
+.section{margin-bottom:22px;}
+.section-hdr{display:flex;align-items:center;gap:8px;padding:8px 0 5px;border-bottom:1px solid var(--border);margin-bottom:7px;}
+.section-hdr-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-dim);}
+.section-count{font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);color:var(--ink-dim);font-family:var(--mono);}
+
+/* MEMO CARDS */
+.memo-list{display:flex;flex-direction:column;gap:7px;}
+.memo-card{background:var(--surface);border:1px solid var(--border);border-radius:7px;overflow:hidden;transition:border-color .15s;}
+.memo-card.classified{border-left:3px solid;}
+.memo-card.classified.d-daily      {border-left-color:var(--blue);}
+.memo-card.classified.d-zettelkasten{border-left-color:var(--purple);}
+.memo-card.classified.d-app-idee   {border-left-color:var(--orange);}
+.memo-card.classified.d-lesenotiz  {border-left-color:var(--green);}
+.memo-card.classified.d-notion     {border-left-color:var(--yellow);}
+.memo-card.classified.d-split      {border-left-color:var(--teal);}
+.memo-card:hover{border-color:var(--border-mid);}
+
+.card-hdr{display:flex;align-items:center;gap:9px;padding:10px 13px;cursor:pointer;user-select:none;}
+.card-hdr:hover{background:var(--surface-2);}
+.card-filename{flex:1;font-size:12px;font-family:var(--mono);color:var(--ink-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.card-date{font-size:11px;color:var(--ink-dim);font-family:var(--mono);white-space:nowrap;}
+.ai-mark{font-size:10px;font-family:var(--mono);color:var(--ink-dim);opacity:.6;}
+.chevron{color:var(--ink-dim);font-size:11px;transition:transform .2s;flex-shrink:0;}
+.memo-card.open .chevron{transform:rotate(180deg);}
+
+.card-body{display:none;padding:0 13px 13px;}
+.memo-card.open .card-body{display:block;}
+
+/* DEST SELECTOR inside card */
+.dest-sel{display:flex;gap:4px;flex-wrap:wrap;padding:7px 0 10px;border-bottom:1px solid var(--border);margin-bottom:10px;}
+.dsel-btn{font-size:10px;font-family:var(--mono);padding:3px 8px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--ink-dim);cursor:pointer;transition:all .1s;}
+.dsel-btn:hover{border-color:var(--border-mid);color:var(--ink-mid);}
+.dsel-btn.sel-daily      {background:var(--blue-bg);  color:var(--blue);  border-color:var(--blue);}
+.dsel-btn.sel-zettelkasten{background:var(--purple-bg);color:var(--purple);border-color:var(--purple);}
+.dsel-btn.sel-app-idee   {background:var(--orange-bg); color:var(--orange);border-color:var(--orange);}
+.dsel-btn.sel-lesenotiz  {background:var(--green-bg);  color:var(--green); border-color:var(--green);}
+.dsel-btn.sel-notion     {background:var(--yellow-bg); color:var(--yellow);border-color:var(--yellow);}
+
+/* REASON */
+.reason-box{font-size:11px;color:var(--ink-dim);font-style:italic;margin-bottom:9px;padding:5px 9px;background:var(--surface-2);border-radius:3px;border-left:2px solid var(--accent-dim);}
+
+/* TAGS */
+.tags-row{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:9px;}
+.tag{font-size:10px;font-family:var(--mono);padding:2px 6px;border-radius:3px;background:var(--surface-3);color:var(--ink-mid);border:1px solid var(--border);}
+
+/* PREVIEW */
+.preview-lbl{font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);margin-bottom:4px;}
+.preview{font-size:12px;color:var(--ink-mid);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;max-height:100px;overflow-y:auto;white-space:pre-wrap;font-family:inherit;line-height:1.5;margin-bottom:9px;}
+
+/* COPY BLOCK */
+.copy-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+.copy-lbl{font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);}
+.copy-block{font-size:11px;font-family:var(--mono);color:var(--ink-mid);background:var(--bg-mid);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;white-space:pre-wrap;overflow-x:auto;max-height:120px;overflow-y:auto;margin-bottom:8px;}
+
+/* SPLIT BLOCKS */
+.splits-wrap{display:flex;flex-direction:column;gap:8px;margin-bottom:8px;}
+.split-block{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;}
+.split-hdr{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);}
+.split-bdy{padding:8px 10px;}
+.split-text{font-size:12px;color:var(--ink-mid);white-space:pre-wrap;font-family:inherit;line-height:1.5;max-height:80px;overflow-y:auto;margin-bottom:8px;}
+
+/* EMPTY */
+.empty{text-align:center;padding:50px 0;color:var(--ink-dim);font-size:14px;}
+.empty-icon{font-size:28px;margin-bottom:9px;opacity:.28;}
+
+/* TOAST */
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--surface-3);border:1px solid var(--border-mid);color:var(--ink);padding:7px 16px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;z-index:999;white-space:nowrap;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:2px;}
+
+@media(max-width:520px){.wrap{padding:14px 11px 60px;}}
+</style>
+</head>
+<body data-theme="dark">
+<div class="wrap">
+
+<header>
+  <span class="app-title">🎙 Voice Memo Router</span>
+  <button class="btn-ghost" onclick="toggleTheme()">☀︎</button>
+</header>
+
+<!-- DROP ZONE -->
+<div class="drop-zone" id="dropZone">
+  <input type="file" id="fileInput" multiple accept=".md,.txt" onchange="handleFiles(this.files)">
+  <div class="drop-icon">📂</div>
+  <div class="drop-label"><strong>Dateien ablegen</strong> oder klicken</div>
+  <div class="drop-hint">.md · .txt · Wispr-Format · Mehrfachauswahl</div>
+</div>
+
+<!-- HITL PANEL -->
+<div class="hitl-panel" id="hitlPanel" style="display:none">
+  <div class="hitl-title">🤖 KI-Klassifizierung (HITL-Workflow)</div>
+  <div class="hitl-steps">
+
+    <div class="hitl-step">
+      <div class="step-n">1</div>
+      <div class="step-body">
+        <div class="step-label">Prompt generieren</div>
+        <div class="step-hint">Enthält alle Memos + präzise Klassifizierungsregeln + JSON-Schema.</div>
+        <button class="btn-primary" onclick="generatePrompt()">⚡ Prompt generieren &amp; kopieren</button>
+        <div id="promptWrap" style="display:none">
+          <div class="copy-row" style="margin-top:8px">
+            <span class="copy-lbl">Prompt (<span id="promptLen">0</span> Zeichen)</span>
+            <button class="btn-copy" id="cpPromptBtn" onclick="copyPrompt()">⎘ Kopieren</button>
+          </div>
+          <textarea class="prompt-box" id="promptBox" readonly></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="hitl-step">
+      <div class="step-n">2</div>
+      <div class="step-body">
+        <div class="step-label">JSON einfügen &amp; anwenden</div>
+        <div class="step-hint">Antwort von ChatGPT / Claude komplett hier einfügen:</div>
+        <textarea class="json-box" id="jsonBox" placeholder='[{"id":"memo_abc","destination":"daily","splits":null,"reason":"...","tags":["#task"]}]'></textarea>
+        <button class="btn-apply" onclick="applyJson()">✓ Anwenden</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- TOOLBAR -->
+<div class="toolbar" id="toolbar" style="display:none">
+  <span class="file-count" id="fileCount"></span>
+  <button class="btn-ghost" style="font-size:12px" onclick="clearAll()">✕ Alles leeren</button>
+</div>
+
+<!-- CONTENT -->
+<div id="content">
+  <div class="empty" id="emptyState">
+    <div class="empty-icon">🎙</div>
+    <div>Noch keine Memos geladen</div>
+  </div>
+</div>
+
+</div>
+<div id="toast"></div>
+
+<script>
+var LKEY      = 'vmrouter_v1';
+var THEME_KEY = 'vmrouter_theme';
+
+var DEST_META = {
+  daily:        { label:'Daily Log',      emoji:'📅', cls:'d-daily' },
+  zettelkasten: { label:'Zettelkasten',   emoji:'🗂',  cls:'d-zettelkasten' },
+  'app-idee':   { label:'App-Idee',       emoji:'💡', cls:'d-app-idee' },
+  lesenotiz:    { label:'Lesenotiz',      emoji:'📚', cls:'d-lesenotiz' },
+  notion:       { label:'Notion/Projekt', emoji:'🗒',  cls:'d-notion' },
+  split:        { label:'Aufgeteilt',     emoji:'✂️', cls:'d-split' },
+  unsicher:     { label:'Unsicher',       emoji:'❓', cls:'d-unsicher' }
+};
+
+var DEST_ORDER = ['daily','zettelkasten','app-idee','lesenotiz','notion','split','unsicher'];
+var SELECTABLE = ['daily','zettelkasten','app-idee','lesenotiz','notion','unsicher'];
+
+var S = { memos:[], _lastExported:'' };
+var T = {}; // id → raw text (not persisted, reloaded from files)
+
+// ── PERSISTENCE ─────────────────────────────────────────────────────────
+function save() {
+  S._lastExported = new Date().toISOString();
+  try { localStorage.setItem(LKEY, JSON.stringify(S)); } catch(e) {}
+}
+function load() {
+  try {
+    var d = localStorage.getItem(LKEY);
+    if (d) { var p = JSON.parse(d); if (p && Array.isArray(p.memos)) S = p; }
+  } catch(e) {}
+  if (!S.memos) S.memos = [];
+}
+
+// ── THEME ────────────────────────────────────────────────────────────────
+function applyTheme(t) {
+  document.body.setAttribute('data-theme', t);
+  localStorage.setItem(THEME_KEY, t);
+}
+function toggleTheme() {
+  applyTheme(document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+}
+
+// ── FILE HANDLING ────────────────────────────────────────────────────────
+function handleFiles(files) {
+  if (!files || !files.length) return;
+  var rem = files.length, added = 0;
+  Array.from(files).forEach(function(file) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var text = e.target.result;
+      if (!S.memos.some(function(m){ return m.filename === file.name; })) {
+        var id = 'memo_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+        var pf = parseFilename(file.name);
+        S.memos.push({ id:id, filename:file.name, dateStr:pf.dateStr, sortDate:pf.sortDate,
+          destination:null, splits:null, reason:'', tags:[], classifiedBy:null, createdAt:new Date().toISOString() });
+        T[id] = text;
+        added++;
+      }
+      if (--rem === 0) { save(); renderAll(); toast(added + ' Memo(s) geladen'); }
+    };
+    reader.readAsText(file, 'utf-8');
+  });
+}
+
+function parseFilename(name) {
+  var m = name.match(/^(\d{4})[.\-_](\d{2})[.\-_](\d{2})/);
+  if (m) return { dateStr:m[1]+'-'+m[2]+'-'+m[3], sortDate:m[1]+m[2]+m[3] };
+  var m2 = name.match(/(\d{8})/);
+  if (m2) { var s=m2[1]; return { dateStr:s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8), sortDate:s }; }
+  return { dateStr:'', sortDate:'00000000' };
+}
+
+// ── CLASSIFICATION RULES (embedded in prompt) ────────────────────────────
+var RULES = [
+'## KLASSIFIZIERUNGSREGELN',
+'',
+'### daily — Bullet-Journal-Einträge (Daily Log)',
+'ERKENNE: Was heute getan/erlebt wurde ("Ich habe ...", "Heute ...", "Hab gerade ..."); offene Tasks / To-dos ("Muss noch ...", "TODO:", Checkboxen "- [ ]"); Tagesplanung, Rückblick; Meetings, Termine; Stimmung, Energie, Fokus.',
+'NICHT MISCHEN: Tasks (Bullet "●") und reine Gedanken (Notiz "–") → bei Mischung: destination=split.',
+'',
+'### zettelkasten — Atomare Gedanken / Konzepte',
+'ERKENNE: Präzise Beobachtung oder Erkenntnis zu EINER Sache; Konzepte, Modelle, Theorien, Prinzipien; "Mir fällt auf ...", "Das Prinzip ist ...", "Interessant:"; philosophische oder psychologische Reflexionen.',
+'NICHT: kein konkreter Handlungsbedarf, keine Tasks, keine Quellenangaben.',
+'',
+'### app-idee — Software / Tool-Ideen',
+'ERKENNE: App-Funktionen, Features, UI-Konzepte; "Man könnte bauen ...", "Wäre cool wenn ...", "Die App sollte ..."; technische Überlegungen: HTML, JS, API, Architektur, Datenmodell.',
+'',
+'### lesenotiz — Aus externen Quellen',
+'ERKENNE: Bezug auf Buch, Podcast, Artikel, Video; "Im Buch ...", "Der Autor ...", Highlights, Paraphrasen, Zitate.',
+'',
+'### notion — Projekt / Dokumentation',
+'ERKENNE: Projekt-Updates, Sprint-Status, Roadmap; Dokumentation, Wiki; Team-Info, Protokolle, Referenzmaterial.',
+'',
+'### split — Gemischtes Memo (Tasks + Gedanken)',
+'WENN ein Memo klar ZWEI Bereiche enthält (z.B. To-do-Liste UND eine konzeptuelle Beobachtung):',
+'→ destination="split", splits=[{"dest":"daily","content":"...nur der Task-Teil..."},{"dest":"zettelkasten","content":"...nur der Gedanken-Teil..."}]',
+'Splits sind IMMER vollständige, kohärente Textstücke — kein Halbsatz.',
+'',
+'### unsicher — wenn unklar oder zu kurz',
+].join('\n');
+
+// ── PROMPT GENERATOR ─────────────────────────────────────────────────────
+function generatePrompt() {
+  if (!S.memos.length) { toast('Keine Memos'); return; }
+
+  var memoSection = S.memos.map(function(m) {
+    var text = T[m.id] || '[Text nicht im Speicher — Datei neu laden]';
+    return '### MEMO id="'+m.id+'" datei="'+m.filename+'" datum="'+(m.dateStr||'unbekannt')+'"\n'+text.trim();
+  }).join('\n\n---\n\n');
+
+  var schema = '{\n  "id": "<memo-id aus den MEMO-Headern oben>",\n  "destination": "<daily|zettelkasten|app-idee|lesenotiz|notion|split|unsicher>",\n  "splits": null,\n  // NUR bei destination="split" befüllen:\n  // "splits": [{"dest":"daily","content":"..."},{"dest":"zettelkasten","content":"..."}],\n  "reason": "<1 prägnanter Satz warum dieser Zielort>",\n  "tags": ["#tag1", "#tag2"]  // aus dem Text extrahiert, max 5, mit #\n}';
+
+  var prompt = '# Voice Memo Klassifizierung\n\n' +
+    RULES + '\n\n---\n\n' +
+    '## AUFGABE\n\n' +
+    'Klassifiziere die ' + S.memos.length + ' Voice-Memo(s) unten nach den obigen Regeln.\n\n' +
+    'Antworte AUSSCHLIESSLICH mit einem JSON-Array — kein erklärender Text, keine Markdown-Backticks außen, keine Kommentare im finalen JSON.\n\n' +
+    'Format (ein Objekt pro Memo, Reihenfolge egal):\n\n' +
+    '[\n  ' + schema.split('\n').join('\n  ') + ',\n  ...\n]\n\n' +
+    '---\n\n## MEMOS\n\n' + memoSection;
+
+  document.getElementById('promptBox').value = prompt;
+  document.getElementById('promptLen').textContent = prompt.length.toLocaleString();
+  document.getElementById('promptWrap').style.display = 'block';
+  copyPrompt();
+  toast('Prompt generiert & kopiert (' + prompt.length.toLocaleString() + ' Zeichen)');
+}
+
+function copyPrompt() {
+  var text = document.getElementById('promptBox').value;
+  var btn = document.getElementById('cpPromptBtn');
+  copyText(text, btn);
+}
+
+// ── JSON IMPORT ──────────────────────────────────────────────────────────
+function applyJson() {
+  var raw = document.getElementById('jsonBox').value.trim();
+  if (!raw) { toast('Kein JSON'); return; }
+  var clean = raw.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'').trim();
+  var data;
+  try { data = JSON.parse(clean); } catch(e) { toast('JSON-Fehler: '+e.message); return; }
+  if (!Array.isArray(data)) { toast('Erwartet ein Array [...]'); return; }
+
+  var updated = 0;
+  var validDests = Object.keys(DEST_META);
+  data.forEach(function(item) {
+    if (!item || !item.id) return;
+    var memo = S.memos.find(function(m){ return m.id === item.id; });
+    if (!memo) return;
+    var dest = validDests.includes(item.destination) ? item.destination : 'unsicher';
+    memo.destination   = dest;
+    memo.splits        = (dest === 'split' && Array.isArray(item.splits)) ? item.splits : null;
+    memo.reason        = (item.reason || '').slice(0, 300);
+    memo.tags          = Array.isArray(item.tags) ? item.tags.slice(0,5) : [];
+    memo.classifiedBy  = 'ai-hitl';
+    updated++;
+  });
+
+  if (updated) {
+    save();
+    renderAll();
+    document.getElementById('jsonBox').value = '';
+    toast(updated + ' Memos klassifiziert');
+  } else {
+    toast('Keine passenden Memo-IDs gefunden');
+  }
+}
+
+// ── MANUAL DEST CHANGE ────────────────────────────────────────────────────
+function setDest(id, dest) {
+  var memo = S.memos.find(function(m){ return m.id === id; });
+  if (!memo) return;
+  memo.destination = dest;
+  memo.splits = null;
+  if (!memo.classifiedBy) memo.classifiedBy = 'manual';
+  save();
+  renderAll();
+}
+
+function clearAll() {
+  if (!confirm('Alle Memos entfernen?')) return;
+  S.memos = []; T = {};
+  save(); renderAll();
+  document.getElementById('fileInput').value = '';
+  document.getElementById('promptWrap').style.display = 'none';
+  toast('Geleert');
+}
+
+// ── COPY OUTPUT FORMAT ────────────────────────────────────────────────────
+function buildOutput(dest, content, dateStr, filename) {
+  var date = dateStr || new Date().toISOString().slice(0,10);
+  var fn = (filename||'').replace(/\.[^.]+$/,'');
+  var c = (content||'').trim();
+  if (dest === 'daily')        return '--- '+date+' ---\n'+c;
+  if (dest === 'zettelkasten') return '# '+fn+'\nDatum: '+date+'\n\n'+c;
+  if (dest === 'app-idee')     return '## App-Idee: '+fn+'\nDatum: '+date+'\n\n'+c;
+  if (dest === 'lesenotiz')    return '## Lesenotiz — '+fn+'\nDatum: '+date+'\n\n'+c;
+  if (dest === 'notion')       return '**'+fn+'** ('+date+')\n\n'+c;
+  return c;
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────
+function renderAll() {
+  var hasMemos = S.memos.length > 0;
+  document.getElementById('emptyState').style.display   = hasMemos ? 'none' : 'block';
+  document.getElementById('toolbar').style.display      = hasMemos ? 'flex' : 'none';
+  document.getElementById('hitlPanel').style.display    = hasMemos ? 'block' : 'none';
+  document.getElementById('fileCount').textContent      = S.memos.length + ' Memo(s)';
+
+  var content = document.getElementById('content');
+  Array.from(content.children).forEach(function(c){ if (c.id !== 'emptyState') c.remove(); });
+  if (!hasMemos) return;
+
+  // Group
+  var groups = {};
+  DEST_ORDER.forEach(function(d){ groups[d] = []; });
+  groups['_none'] = [];
+  S.memos.forEach(function(m){
+    var d = m.destination || '_none';
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(m);
+  });
+  // Sort within each group: date desc
+  Object.keys(groups).forEach(function(d){
+    groups[d].sort(function(a,b){ return (b.sortDate||'').localeCompare(a.sortDate||''); });
+  });
+
+  // Unclassified first
+  if (groups['_none'].length) content.appendChild(buildSection(null, groups['_none']));
+  DEST_ORDER.forEach(function(d){
+    if (groups[d] && groups[d].length) content.appendChild(buildSection(d, groups[d]));
+  });
+}
+
+function buildSection(dest, memos) {
+  var sec = document.createElement('div');
+  sec.className = 'section';
+  var hdr = document.createElement('div');
+  hdr.className = 'section-hdr';
+  if (dest) {
+    var dm = DEST_META[dest];
+    hdr.innerHTML = '<span class="dbadge '+dm.cls+'">'+dm.emoji+' '+dm.label+'</span>'+
+      '<span class="section-count">'+memos.length+'</span>';
+  } else {
+    hdr.innerHTML = '<span class="section-hdr-label">Noch nicht klassifiziert</span>'+
+      '<span class="section-count">'+memos.length+'</span>';
+  }
+  sec.appendChild(hdr);
+  var list = document.createElement('div');
+  list.className = 'memo-list';
+  memos.forEach(function(m){ list.appendChild(buildCard(m)); });
+  sec.appendChild(list);
+  return sec;
+}
+
+function buildCard(memo) {
+  var card = document.createElement('div');
+  var dest = memo.destination || '';
+  card.className = 'memo-card'+(dest ? ' classified '+(DEST_META[dest]||{}).cls : '');
+  card.id = 'card_'+memo.id;
+
+  // Header
+  var hdr = document.createElement('div');
+  hdr.className = 'card-hdr';
+  hdr.onclick = function(){ card.classList.toggle('open'); };
+  var badgeHtml = dest && DEST_META[dest]
+    ? '<span class="dbadge '+DEST_META[dest].cls+'">'+DEST_META[dest].emoji+' '+DEST_META[dest].label+'</span>'
+    : '';
+  hdr.innerHTML = badgeHtml +
+    '<span class="card-filename">'+esc(memo.filename)+'</span>'+
+    (memo.dateStr ? '<span class="card-date">'+memo.dateStr+'</span>' : '')+
+    (memo.classifiedBy === 'ai-hitl' ? '<span class="ai-mark">AI</span>' : '')+
+    '<span class="chevron">▾</span>';
+  card.appendChild(hdr);
+
+  // Body
+  var body = document.createElement('div');
+  body.className = 'card-body';
+
+  // Dest selector
+  var sel = '<div class="dest-sel">';
+  SELECTABLE.forEach(function(d){
+    var dm = DEST_META[d];
+    var ac = dest === d ? ' sel-'+d : '';
+    sel += '<button class="dsel-btn'+ac+'" onclick="setDest(\''+memo.id+'\',\''+d+'\')">'+dm.emoji+' '+dm.label+'</button>';
+  });
+  sel += '</div>';
+  body.innerHTML = sel;
+
+  // Reason
+  if (memo.reason) {
+    var re = document.createElement('div');
+    re.className = 'reason-box';
+    re.textContent = memo.reason;
+    body.appendChild(re);
+  }
+
+  // Tags
+  if (memo.tags && memo.tags.length) {
+    var tr = document.createElement('div');
+    tr.className = 'tags-row';
+    memo.tags.forEach(function(t){
+      var p = document.createElement('span');
+      p.className = 'tag'; p.textContent = t;
+      tr.appendChild(p);
+    });
+    body.appendChild(tr);
+  }
+
+  var text = T[memo.id] || '';
+
+  if (dest === 'split' && memo.splits && memo.splits.length) {
+    // Split view
+    var sw = document.createElement('div');
+    sw.className = 'splits-wrap';
+    memo.splits.forEach(function(sp, i) {
+      var sdm = DEST_META[sp.dest] || { label:sp.dest, emoji:'•', cls:'d-unsicher' };
+      var cid = 'sp_'+memo.id+'_'+i;
+      var out = buildOutput(sp.dest, sp.content, memo.dateStr, memo.filename);
+      var sb = document.createElement('div');
+      sb.className = 'split-block';
+      sb.innerHTML =
+        '<div class="split-hdr"><span class="dbadge '+sdm.cls+'">'+sdm.emoji+' '+sdm.label+'</span></div>'+
+        '<div class="split-bdy">'+
+          '<div class="split-text">'+esc(sp.content)+'</div>'+
+          '<div class="copy-row">'+
+            '<span class="copy-lbl">Kopiervorlage</span>'+
+            '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\')">⎘ Kopieren</button>'+
+          '</div>'+
+          '<div class="copy-block" id="blk_'+cid+'">'+esc(out)+'</div>'+
+        '</div>';
+      sw.appendChild(sb);
+    });
+    body.appendChild(sw);
+  } else {
+    // Normal view
+    var pl = document.createElement('div');
+    pl.innerHTML = '<div class="preview-lbl">Vorschau</div>'+
+      '<div class="preview">'+esc(text.slice(0,280))+(text.length>280?'\n…':'')+'</div>';
+    body.appendChild(pl);
+
+    if (dest && dest !== 'unsicher' && dest !== 'split') {
+      var out = buildOutput(dest, text, memo.dateStr, memo.filename);
+      var cid = 'main_'+memo.id;
+      var cb = document.createElement('div');
+      cb.innerHTML =
+        '<div class="copy-row">'+
+          '<span class="copy-lbl">Kopiervorlage → '+(DEST_META[dest]||{}).label+'</span>'+
+          '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\')">⎘ Kopieren</button>'+
+        '</div>'+
+        '<div class="copy-block" id="blk_'+cid+'">'+esc(out)+'</div>';
+      body.appendChild(cb);
+    }
+  }
+
+  card.appendChild(body);
+  return card;
+}
+
+// ── COPY ─────────────────────────────────────────────────────────────────
+function copyById(cid) {
+  var blk = document.getElementById('blk_'+cid);
+  var btn = document.getElementById('btn_'+cid);
+  if (blk) copyText(blk.textContent, btn);
+}
+function copyText(text, btn) {
+  var reset = btn ? btn.textContent : '';
+  navigator.clipboard.writeText(text).then(function(){
+    if (btn){ btn.textContent='✓ Kopiert'; btn.classList.add('copied'); }
+    setTimeout(function(){ if(btn){ btn.textContent=reset; btn.classList.remove('copied'); } }, 1600);
+  }).catch(function(){
+    var ta=document.createElement('textarea'); ta.value=text;
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    if(btn){ btn.textContent='✓ Kopiert'; setTimeout(function(){ btn.textContent=reset; },1600); }
+  });
+}
+
+// ── DRAG & DROP ───────────────────────────────────────────────────────────
+(function(){
+  var z=document.getElementById('dropZone');
+  z.addEventListener('dragover',function(e){e.preventDefault();z.classList.add('drag-over');});
+  z.addEventListener('dragleave',function(){z.classList.remove('drag-over');});
+  z.addEventListener('drop',function(e){e.preventDefault();z.classList.remove('drag-over');handleFiles(e.dataTransfer.files);});
+})();
+
+// ── TOAST ─────────────────────────────────────────────────────────────────
+var _tt=null;
+function toast(msg){
+  var el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  if(_tt) clearTimeout(_tt);
+  _tt=setTimeout(function(){el.classList.remove('show');},2400);
+}
+
+// ── UTILS ─────────────────────────────────────────────────────────────────
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+applyTheme(localStorage.getItem(THEME_KEY)||'dark');
+load();
+renderAll();
+</script>
+</body>
+</html>
