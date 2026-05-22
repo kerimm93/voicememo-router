@@ -440,7 +440,7 @@ function setDest(id, dest) {
 
 function clearAll() {
   if (!confirm('Alle Memos entfernen?')) return;
-  S.memos = []; T = {}; selectedMemoIds = {};
+  S.memos = []; T = {}; selectedMemoIds = {}; openMemoIds = {};
   save(); renderAll();
   document.getElementById('fileInput').value = '';
   document.getElementById('promptWrap').style.display = 'none';
@@ -678,8 +678,18 @@ function buildCard(memo) {
 function copyById(cid, memoId, splitIdx) {
   var blk = document.getElementById('blk_'+cid);
   var btn = document.getElementById('btn_'+cid);
-  if (blk) {
-    copyText(blk.textContent, btn).then(function(){
+  var txt = blk ? blk.textContent : '';
+  if (memoId) {
+    var memoForCopy = S.memos.find(function(m){ return m.id === memoId; });
+    if (memoForCopy && typeof splitIdx === 'number' && memoForCopy.destination === 'split' && Array.isArray(memoForCopy.splits) && memoForCopy.splits[splitIdx]) {
+      var sp = memoForCopy.splits[splitIdx];
+      txt = buildOutput(sp.dest, sp.content, memoForCopy.dateStr, memoForCopy.filename, memoForCopy.timeStr, sp.contextNote);
+    } else if (memoForCopy && memoForCopy.destination && memoForCopy.destination !== 'split' && memoForCopy.destination !== 'unsicher') {
+      txt = buildOutput(memoForCopy.destination, T[memoForCopy.id] || '', memoForCopy.dateStr, memoForCopy.filename, memoForCopy.timeStr, memoForCopy.contextNote);
+    }
+  }
+  if (txt) {
+    copyText(txt, btn).then(function(){
       if (memoId) {
         var memo = S.memos.find(function(m){ return m.id === memoId; });
         if (memo && typeof splitIdx === 'number' && memo.destination === 'split' && Array.isArray(memo.splits) && memo.splits[splitIdx]) {
@@ -750,7 +760,7 @@ function clearSelection() {
 function flattenForCopy(memo) {
   var text = T[memo.id] || '';
   if (memo.destination === 'split' && Array.isArray(memo.splits)) {
-    return memo.splits.map(function(sp){
+    return memo.splits.map(function(sp, i){
       return { memo:memo, splitIdx:i, destination:sp.dest, content:sp.content||'', dateStr:memo.dateStr, timeStr:memo.timeStr, filename:memo.filename, contextNote:sp.contextNote||'' };
     });
   }
