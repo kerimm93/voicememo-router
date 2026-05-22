@@ -99,9 +99,11 @@ button:disabled{opacity:.35;cursor:not-allowed;}
 .memo-card.classified.d-notion     {border-left-color:var(--yellow);}
 .memo-card.classified.d-split      {border-left-color:var(--teal);}
 .memo-card:hover{border-color:var(--border-mid);}
+.memo-card.processed{opacity:.72;}
 
 .card-hdr{display:flex;align-items:center;gap:9px;padding:10px 13px;cursor:pointer;user-select:none;}
 .card-hdr:hover{background:var(--surface-2);}
+.card-check{width:15px;height:15px;cursor:pointer;}
 .card-filename{flex:1;font-size:12px;font-family:var(--mono);color:var(--ink-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .card-date{font-size:11px;color:var(--ink-dim);font-family:var(--mono);white-space:nowrap;}
 .ai-mark{font-size:10px;font-family:var(--mono);color:var(--ink-dim);opacity:.6;}
@@ -136,6 +138,12 @@ button:disabled{opacity:.35;cursor:not-allowed;}
 .copy-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
 .copy-lbl{font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);}
 .copy-block{font-size:11px;font-family:var(--mono);color:var(--ink-mid);background:var(--bg-mid);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;white-space:pre-wrap;overflow-x:auto;max-height:120px;overflow-y:auto;margin-bottom:8px;}
+.status-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding:6px 8px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);}
+.status-text{font-size:11px;font-family:var(--mono);color:var(--ink-mid);}
+.ctx-wrap{margin-bottom:10px;}
+.ctx-wrap summary{font-size:11px;font-family:var(--mono);color:var(--ink-mid);cursor:pointer;list-style:none;}
+.ctx-wrap summary::-webkit-details-marker{display:none;}
+.ctx-input{margin-top:6px;width:100%;min-height:70px;background:var(--bg-mid);border:1px solid var(--border);color:var(--ink-mid);font-family:inherit;font-size:12px;border-radius:var(--r);padding:8px;resize:vertical;}
 
 /* SPLIT BLOCKS */
 .splits-wrap{display:flex;flex-direction:column;gap:8px;margin-bottom:8px;}
@@ -244,6 +252,7 @@ var SELECTABLE = ['daily','zettelkasten','app-idee','lesenotiz','notion','unsich
 
 var S = { memos:[], _lastExported:'' };
 var T = {}; // id → raw text (not persisted, reloaded from files)
+var selectedMemoIds = {};
 
 // ── PERSISTENCE ─────────────────────────────────────────────────────────
 function save() {
@@ -256,6 +265,12 @@ function load() {
     if (d) { var p = JSON.parse(d); if (p && Array.isArray(p.memos)) S = p; }
   } catch(e) {}
   if (!S.memos) S.memos = [];
+  S.memos.forEach(function(m){
+    if (typeof m.timeStr !== "string") m.timeStr = "";
+    if (typeof m.contextNote !== "string") m.contextNote = "";
+    if (typeof m.processed !== "boolean") m.processed = false;
+    if (typeof m.processedAt !== "string") m.processedAt = "";
+  });
 }
 
 // ── THEME ────────────────────────────────────────────────────────────────
@@ -279,6 +294,7 @@ function handleFiles(files) {
         var id = 'memo_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
         var pf = parseFilename(file.name);
         S.memos.push({ id:id, filename:file.name, dateStr:pf.dateStr, sortDate:pf.sortDate,
+          timeStr:pf.timeStr || '', contextNote:'', processed:false, processedAt:'',
           destination:null, splits:null, reason:'', tags:[], classifiedBy:null, createdAt:new Date().toISOString() });
         T[id] = text;
         added++;
@@ -290,11 +306,16 @@ function handleFiles(files) {
 }
 
 function parseFilename(name) {
-  var m = name.match(/^(\d{4})[.\-_](\d{2})[.\-_](\d{2})/);
-  if (m) return { dateStr:m[1]+'-'+m[2]+'-'+m[3], sortDate:m[1]+m[2]+m[3] };
+  var m = name.match(/^(\d{4})[.\-_](\d{2})[.\-_](\d{2})(?:[\s._-]+(\d{6}))?/);
+  if (m) {
+    var t = m[4] || '';
+    var timeStr = t ? (t.slice(0,2)+':'+t.slice(2,4)) : '';
+    var sortDate = m[1]+m[2]+m[3]+(t||'000000');
+    return { dateStr:m[1]+'-'+m[2]+'-'+m[3], timeStr:timeStr, sortDate:sortDate };
+  }
   var m2 = name.match(/(\d{8})/);
-  if (m2) { var s=m2[1]; return { dateStr:s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8), sortDate:s }; }
-  return { dateStr:'', sortDate:'00000000' };
+  if (m2) { var s=m2[1]; return { dateStr:s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8), timeStr:'', sortDate:s+'000000' }; }
+  return { dateStr:'', timeStr:'', sortDate:'00000000000000' };
 }
 
 // ── CLASSIFICATION RULES (embedded in prompt) ────────────────────────────
@@ -406,7 +427,7 @@ function setDest(id, dest) {
 
 function clearAll() {
   if (!confirm('Alle Memos entfernen?')) return;
-  S.memos = []; T = {};
+  S.memos = []; T = {}; selectedMemoIds = {};
   save(); renderAll();
   document.getElementById('fileInput').value = '';
   document.getElementById('promptWrap').style.display = 'none';
@@ -414,16 +435,29 @@ function clearAll() {
 }
 
 // ── COPY OUTPUT FORMAT ────────────────────────────────────────────────────
-function buildOutput(dest, content, dateStr, filename) {
+function buildOutput(dest, content, dateStr, filename, timeStr, contextNote) {
   var date = dateStr || new Date().toISOString().slice(0,10);
   var fn = (filename||'').replace(/\.[^.]+$/,'');
   var c = (content||'').trim();
-  if (dest === 'daily')        return '--- '+date+' ---\n'+c;
+  var ctx = (contextNote||'').trim();
+  if (dest === 'daily') {
+    var line = '- ' + (timeStr ? timeStr+' ' : '') + c;
+    if (ctx) line += '\n  Kontext: ' + ctx;
+    return '--- '+date+' ---\n'+line;
+  }
+  if (ctx) c += '\n\nKontext:\n'+ctx;
   if (dest === 'zettelkasten') return '# '+fn+'\nDatum: '+date+'\n\n'+c;
   if (dest === 'app-idee')     return '## App-Idee: '+fn+'\nDatum: '+date+'\n\n'+c;
   if (dest === 'lesenotiz')    return '## Lesenotiz — '+fn+'\nDatum: '+date+'\n\n'+c;
   if (dest === 'notion')       return '**'+fn+'** ('+date+')\n\n'+c;
   return c;
+}
+
+function markProcessed(id, processed) {
+  var memo = S.memos.find(function(m){ return m.id === id; });
+  if (!memo) return;
+  memo.processed = !!processed;
+  memo.processedAt = processed ? new Date().toISOString() : '';
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────
@@ -433,6 +467,13 @@ function renderAll() {
   document.getElementById('toolbar').style.display      = hasMemos ? 'flex' : 'none';
   document.getElementById('hitlPanel').style.display    = hasMemos ? 'block' : 'none';
   document.getElementById('fileCount').textContent      = S.memos.length + ' Memo(s)';
+  var tb = document.getElementById('toolbar');
+  tb.querySelectorAll('.batch-btn').forEach(function(b){ b.remove(); });
+  if (hasMemos) {
+    tb.insertAdjacentHTML('beforeend',
+      '<button class="btn-ghost batch-btn" style="font-size:12px" onclick="copySelected()">Auswahl kopieren</button>'+
+      '<button class="btn-ghost batch-btn" style="font-size:12px" onclick="clearSelection()">Auswahl aufheben</button>');
+  }
 
   var content = document.getElementById('content');
   Array.from(content.children).forEach(function(c){ if (c.id !== 'emptyState') c.remove(); });
@@ -472,6 +513,7 @@ function buildSection(dest, memos) {
     hdr.innerHTML = '<span class="section-hdr-label">Noch nicht klassifiziert</span>'+
       '<span class="section-count">'+memos.length+'</span>';
   }
+  hdr.innerHTML += '<button class="btn-copy" onclick="copySection(\''+(dest||'_none')+'\')">Abschnitt kopieren</button>';
   sec.appendChild(hdr);
   var list = document.createElement('div');
   list.className = 'memo-list';
@@ -484,6 +526,7 @@ function buildCard(memo) {
   var card = document.createElement('div');
   var dest = memo.destination || '';
   card.className = 'memo-card'+(dest ? ' classified '+(DEST_META[dest]||{}).cls : '');
+  if (memo.processed) card.className += ' processed';
   card.id = 'card_'+memo.id;
 
   // Header
@@ -493,9 +536,10 @@ function buildCard(memo) {
   var badgeHtml = dest && DEST_META[dest]
     ? '<span class="dbadge '+DEST_META[dest].cls+'">'+DEST_META[dest].emoji+' '+DEST_META[dest].label+'</span>'
     : '';
-  hdr.innerHTML = badgeHtml +
+  hdr.innerHTML = '<input type="checkbox" class="card-check" '+(selectedMemoIds[memo.id] ? 'checked':'')+' onclick="toggleMemoSelection(event,\''+memo.id+'\')">' +
+    badgeHtml +
     '<span class="card-filename">'+esc(memo.filename)+'</span>'+
-    (memo.dateStr ? '<span class="card-date">'+memo.dateStr+'</span>' : '')+
+    (memo.dateStr ? '<span class="card-date">'+memo.dateStr+(memo.timeStr ? ' · '+memo.timeStr : '')+'</span>' : '')+
     (memo.classifiedBy === 'ai-hitl' ? '<span class="ai-mark">AI</span>' : '')+
     '<span class="chevron">▾</span>';
   card.appendChild(hdr);
@@ -513,6 +557,11 @@ function buildCard(memo) {
   });
   sel += '</div>';
   body.innerHTML = sel;
+  body.insertAdjacentHTML('beforeend',
+    '<div class="status-row"><span class="status-text">'+(memo.processed ? '✓ Verarbeitet' : 'Noch zu kopieren')+'</span>'+
+    '<button class="btn-copy" onclick="toggleProcessed(\''+memo.id+'\')">'+(memo.processed ? 'Als unverarbeitet markieren' : 'Als verarbeitet markieren')+'</button></div>'+
+    '<details class="ctx-wrap"><summary>Eigene Ergänzung / Kontext</summary><textarea class="ctx-input" oninput="setContextNote(\''+memo.id+'\', this.value)">'+esc(memo.contextNote||'')+'</textarea></details>'
+  );
 
   // Reason
   if (memo.reason) {
@@ -543,7 +592,7 @@ function buildCard(memo) {
     memo.splits.forEach(function(sp, i) {
       var sdm = DEST_META[sp.dest] || { label:sp.dest, emoji:'•', cls:'d-unsicher' };
       var cid = 'sp_'+memo.id+'_'+i;
-      var out = buildOutput(sp.dest, sp.content, memo.dateStr, memo.filename);
+      var out = buildOutput(sp.dest, sp.content, memo.dateStr, memo.filename, memo.timeStr, memo.contextNote);
       var sb = document.createElement('div');
       sb.className = 'split-block';
       sb.innerHTML =
@@ -552,7 +601,7 @@ function buildCard(memo) {
           '<div class="split-text">'+esc(sp.content)+'</div>'+
           '<div class="copy-row">'+
             '<span class="copy-lbl">Kopiervorlage</span>'+
-            '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\')">⎘ Kopieren</button>'+
+            '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\',\''+memo.id+'\')">⎘ Kopieren</button>'+
           '</div>'+
           '<div class="copy-block" id="blk_'+cid+'">'+esc(out)+'</div>'+
         '</div>';
@@ -567,13 +616,13 @@ function buildCard(memo) {
     body.appendChild(pl);
 
     if (dest && dest !== 'unsicher' && dest !== 'split') {
-      var out = buildOutput(dest, text, memo.dateStr, memo.filename);
+      var out = buildOutput(dest, text, memo.dateStr, memo.filename, memo.timeStr, memo.contextNote);
       var cid = 'main_'+memo.id;
       var cb = document.createElement('div');
       cb.innerHTML =
         '<div class="copy-row">'+
           '<span class="copy-lbl">Kopiervorlage → '+(DEST_META[dest]||{}).label+'</span>'+
-          '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\')">⎘ Kopieren</button>'+
+          '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\',\''+memo.id+'\')">⎘ Kopieren</button>'+
         '</div>'+
         '<div class="copy-block" id="blk_'+cid+'">'+esc(out)+'</div>';
       body.appendChild(cb);
@@ -585,20 +634,106 @@ function buildCard(memo) {
 }
 
 // ── COPY ─────────────────────────────────────────────────────────────────
-function copyById(cid) {
+function copyById(cid, memoId) {
   var blk = document.getElementById('blk_'+cid);
   var btn = document.getElementById('btn_'+cid);
-  if (blk) copyText(blk.textContent, btn);
+  if (blk) {
+    copyText(blk.textContent, btn).then(function(){
+      if (memoId) { markProcessed(memoId, true); save(); renderAll(); }
+    });
+  }
 }
 function copyText(text, btn) {
   var reset = btn ? btn.textContent : '';
-  navigator.clipboard.writeText(text).then(function(){
+  return navigator.clipboard.writeText(text).then(function(){
     if (btn){ btn.textContent='✓ Kopiert'; btn.classList.add('copied'); }
     setTimeout(function(){ if(btn){ btn.textContent=reset; btn.classList.remove('copied'); } }, 1600);
+    return true;
   }).catch(function(){
     var ta=document.createElement('textarea'); ta.value=text;
     document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
     if(btn){ btn.textContent='✓ Kopiert'; setTimeout(function(){ btn.textContent=reset; },1600); }
+    return true;
+  });
+}
+
+function setContextNote(id, value) {
+  var memo = S.memos.find(function(m){ return m.id === id; });
+  if (!memo) return;
+  memo.contextNote = value || '';
+  save();
+}
+function toggleProcessed(id) {
+  var memo = S.memos.find(function(m){ return m.id === id; });
+  if (!memo) return;
+  markProcessed(id, !memo.processed);
+  save();
+  renderAll();
+}
+function toggleMemoSelection(ev, id) {
+  ev.stopPropagation();
+  if (ev.target.checked) selectedMemoIds[id] = true;
+  else delete selectedMemoIds[id];
+}
+function clearSelection() {
+  selectedMemoIds = {};
+  renderAll();
+}
+function flattenForCopy(memo) {
+  var text = T[memo.id] || '';
+  if (memo.destination === 'split' && Array.isArray(memo.splits)) {
+    return memo.splits.map(function(sp){
+      return { memo:memo, destination:sp.dest, content:sp.content||'', dateStr:memo.dateStr, timeStr:memo.timeStr, filename:memo.filename, contextNote:memo.contextNote };
+    });
+  }
+  return [{ memo:memo, destination:memo.destination, content:text, dateStr:memo.dateStr, timeStr:memo.timeStr, filename:memo.filename, contextNote:memo.contextNote }];
+}
+function buildBatchOutput(memos) {
+  var entries = [];
+  memos.forEach(function(m){ entries = entries.concat(flattenForCopy(m)); });
+  entries = entries.filter(function(e){ return e.destination && e.destination !== 'unsicher'; });
+  var daily = entries.filter(function(e){ return e.destination === 'daily'; });
+  var rest = entries.filter(function(e){ return e.destination !== 'daily'; });
+  var parts = [];
+  if (daily.length) {
+    var byDay = {};
+    daily.forEach(function(e){
+      var key = e.dateStr || new Date().toISOString().slice(0,10);
+      if (!byDay[key]) byDay[key] = [];
+      byDay[key].push(e);
+    });
+    Object.keys(byDay).sort().forEach(function(day){
+      byDay[day].sort(function(a,b){ return (a.memo.sortDate||'').localeCompare(b.memo.sortDate||''); });
+      var lines = byDay[day].map(function(e){
+        var t = (e.content||'').trim();
+        var line = '- ' + (e.timeStr ? e.timeStr+' ' : '') + t;
+        if ((e.contextNote||'').trim()) line += '\n  Kontext: ' + e.contextNote.trim();
+        return line;
+      }).join('\n');
+      parts.push('--- '+day+' ---\n'+lines);
+    });
+  }
+  rest.forEach(function(e){ parts.push(buildOutput(e.destination, e.content, e.dateStr, e.filename, e.timeStr, e.contextNote)); });
+  return parts.join('\n\n');
+}
+function copySelected() {
+  var ids = Object.keys(selectedMemoIds);
+  if (!ids.length) { toast('Keine Memos ausgewählt'); return; }
+  var memos = S.memos.filter(function(m){ return selectedMemoIds[m.id]; });
+  var out = buildBatchOutput(memos).trim();
+  if (!out) { toast('Keine kopierbaren Inhalte in Auswahl'); return; }
+  copyText(out).then(function(){
+    memos.forEach(function(m){ markProcessed(m.id, true); });
+    save(); clearSelection(); toast('Auswahl kopiert');
+  });
+}
+function copySection(dest) {
+  var memos = S.memos.filter(function(m){ return (m.destination||'_none') === dest; });
+  var out = buildBatchOutput(memos).trim();
+  if (!out) { toast('In diesem Abschnitt nichts kopierbar'); return; }
+  copyText(out).then(function(){
+    memos.forEach(function(m){ markProcessed(m.id, true); });
+    save(); renderAll(); toast('Abschnitt kopiert');
   });
 }
 
