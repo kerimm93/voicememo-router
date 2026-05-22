@@ -253,6 +253,7 @@ var SELECTABLE = ['daily','zettelkasten','app-idee','lesenotiz','notion','unsich
 var S = { memos:[], _lastExported:'' };
 var T = {}; // id → raw text (not persisted, reloaded from files)
 var selectedMemoIds = {};
+var openMemoIds = {};
 
 // ── PERSISTENCE ─────────────────────────────────────────────────────────
 function save() {
@@ -270,6 +271,13 @@ function load() {
     if (typeof m.contextNote !== "string") m.contextNote = "";
     if (typeof m.processed !== "boolean") m.processed = false;
     if (typeof m.processedAt !== "string") m.processedAt = "";
+    if (Array.isArray(m.splits)) {
+      m.splits.forEach(function(sp){
+        if (typeof sp.processed !== "boolean") sp.processed = false;
+        if (typeof sp.processedAt !== "string") sp.processedAt = "";
+        if (typeof sp.contextNote !== "string") sp.contextNote = "";
+      });
+    }
   });
 }
 
@@ -398,6 +406,11 @@ function applyJson() {
     var dest = validDests.includes(item.destination) ? item.destination : 'unsicher';
     memo.destination   = dest;
     memo.splits        = (dest === 'split' && Array.isArray(item.splits)) ? item.splits : null;
+    if (memo.splits) memo.splits.forEach(function(sp){
+      if (typeof sp.processed !== "boolean") sp.processed = false;
+      if (typeof sp.processedAt !== "string") sp.processedAt = "";
+      if (typeof sp.contextNote !== "string") sp.contextNote = "";
+    });
     memo.reason        = (item.reason || '').slice(0, 300);
     memo.tags          = Array.isArray(item.tags) ? item.tags.slice(0,5) : [];
     memo.classifiedBy  = 'ai-hitl';
@@ -458,6 +471,22 @@ function markProcessed(id, processed) {
   if (!memo) return;
   memo.processed = !!processed;
   memo.processedAt = processed ? new Date().toISOString() : '';
+}
+function splitCopyableParts(memo) {
+  if (!memo || memo.destination !== 'split' || !Array.isArray(memo.splits)) return [];
+  return memo.splits.filter(function(sp){ return sp && sp.dest && sp.dest !== 'unsicher'; });
+}
+function syncMemoProcessedFromSplits(memo) {
+  var parts = splitCopyableParts(memo);
+  memo.processed = !!parts.length && parts.every(function(sp){ return !!sp.processed; });
+  memo.processedAt = memo.processed ? new Date().toISOString() : '';
+}
+function splitStatusLabel(memo) {
+  var parts = splitCopyableParts(memo);
+  var done = parts.filter(function(sp){ return sp.processed; }).length;
+  if (!parts.length || done === 0) return 'Noch zu kopieren';
+  if (done < parts.length) return 'Teilweise verarbeitet';
+  return '✓ Verarbeitet';
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────
@@ -526,13 +555,18 @@ function buildCard(memo) {
   var card = document.createElement('div');
   var dest = memo.destination || '';
   card.className = 'memo-card'+(dest ? ' classified '+(DEST_META[dest]||{}).cls : '');
-  if (memo.processed) card.className += ' processed';
+  var isSplit = dest === 'split' && Array.isArray(memo.splits);
+  if (isSplit) syncMemoProcessedFromSplits(memo);
+  if (memo.processed || (isSplit && splitStatusLabel(memo) !== 'Noch zu kopieren')) card.className += ' processed';
   card.id = 'card_'+memo.id;
 
   // Header
   var hdr = document.createElement('div');
   hdr.className = 'card-hdr';
-  hdr.onclick = function(){ card.classList.toggle('open'); };
+  hdr.onclick = function(){
+    var isOpen = card.classList.toggle('open');
+    if (isOpen) openMemoIds[memo.id] = true; else delete openMemoIds[memo.id];
+  };
   var badgeHtml = dest && DEST_META[dest]
     ? '<span class="dbadge '+DEST_META[dest].cls+'">'+DEST_META[dest].emoji+' '+DEST_META[dest].label+'</span>'
     : '';
@@ -543,6 +577,7 @@ function buildCard(memo) {
     (memo.classifiedBy === 'ai-hitl' ? '<span class="ai-mark">AI</span>' : '')+
     '<span class="chevron">▾</span>';
   card.appendChild(hdr);
+  if (openMemoIds[memo.id]) card.classList.add('open');
 
   // Body
   var body = document.createElement('div');
@@ -557,11 +592,16 @@ function buildCard(memo) {
   });
   sel += '</div>';
   body.innerHTML = sel;
+  var statusText = isSplit ? splitStatusLabel(memo) : (memo.processed ? '✓ Verarbeitet' : 'Noch zu kopieren');
   body.insertAdjacentHTML('beforeend',
-    '<div class="status-row"><span class="status-text">'+(memo.processed ? '✓ Verarbeitet' : 'Noch zu kopieren')+'</span>'+
-    '<button class="btn-copy" onclick="toggleProcessed(\''+memo.id+'\')">'+(memo.processed ? 'Als unverarbeitet markieren' : 'Als verarbeitet markieren')+'</button></div>'+
-    '<details class="ctx-wrap"><summary>Eigene Ergänzung / Kontext</summary><textarea class="ctx-input" oninput="setContextNote(\''+memo.id+'\', this.value)">'+esc(memo.contextNote||'')+'</textarea></details>'
+    '<div class="status-row"><span class="status-text">'+statusText+'</span>'+
+    '<button class="btn-copy" onclick="toggleProcessed(\''+memo.id+'\')">'+((isSplit ? memo.processed : memo.processed) ? 'Als unverarbeitet markieren' : 'Als verarbeitet markieren')+'</button></div>'
   );
+  if (!isSplit) {
+    body.insertAdjacentHTML('beforeend',
+      '<details class="ctx-wrap"><summary>Eigene Ergänzung / Kontext</summary><textarea class="ctx-input" oninput="setContextNote(\''+memo.id+'\', this.value)">'+esc(memo.contextNote||'')+'</textarea></details>'
+    );
+  }
 
   // Reason
   if (memo.reason) {
@@ -592,16 +632,17 @@ function buildCard(memo) {
     memo.splits.forEach(function(sp, i) {
       var sdm = DEST_META[sp.dest] || { label:sp.dest, emoji:'•', cls:'d-unsicher' };
       var cid = 'sp_'+memo.id+'_'+i;
-      var out = buildOutput(sp.dest, sp.content, memo.dateStr, memo.filename, memo.timeStr, memo.contextNote);
+      var out = buildOutput(sp.dest, sp.content, memo.dateStr, memo.filename, memo.timeStr, sp.contextNote);
       var sb = document.createElement('div');
       sb.className = 'split-block';
       sb.innerHTML =
         '<div class="split-hdr"><span class="dbadge '+sdm.cls+'">'+sdm.emoji+' '+sdm.label+'</span></div>'+
         '<div class="split-bdy">'+
           '<div class="split-text">'+esc(sp.content)+'</div>'+
+          '<details class="ctx-wrap"><summary>Kontext zu diesem Teil</summary><textarea class="ctx-input" oninput="setSplitContextNote(\''+memo.id+'\','+i+', this.value)">'+esc(sp.contextNote||'')+'</textarea></details>'+
           '<div class="copy-row">'+
             '<span class="copy-lbl">Kopiervorlage</span>'+
-            '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\',\''+memo.id+'\')">⎘ Kopieren</button>'+
+            '<button class="btn-copy" id="btn_'+cid+'" onclick="copyById(\''+cid+'\',\''+memo.id+'\','+i+')">⎘ Kopieren</button>'+
           '</div>'+
           '<div class="copy-block" id="blk_'+cid+'">'+esc(out)+'</div>'+
         '</div>';
@@ -634,12 +675,23 @@ function buildCard(memo) {
 }
 
 // ── COPY ─────────────────────────────────────────────────────────────────
-function copyById(cid, memoId) {
+function copyById(cid, memoId, splitIdx) {
   var blk = document.getElementById('blk_'+cid);
   var btn = document.getElementById('btn_'+cid);
   if (blk) {
     copyText(blk.textContent, btn).then(function(){
-      if (memoId) { markProcessed(memoId, true); save(); renderAll(); }
+      if (memoId) {
+        var memo = S.memos.find(function(m){ return m.id === memoId; });
+        if (memo && typeof splitIdx === 'number' && memo.destination === 'split' && Array.isArray(memo.splits) && memo.splits[splitIdx]) {
+          memo.splits[splitIdx].processed = true;
+          memo.splits[splitIdx].processedAt = new Date().toISOString();
+          syncMemoProcessedFromSplits(memo);
+          openMemoIds[memoId] = true;
+        } else {
+          markProcessed(memoId, true);
+        }
+        save(); renderAll();
+      }
     });
   }
 }
@@ -666,9 +718,25 @@ function setContextNote(id, value) {
 function toggleProcessed(id) {
   var memo = S.memos.find(function(m){ return m.id === id; });
   if (!memo) return;
-  markProcessed(id, !memo.processed);
+  if (memo.destination === 'split' && Array.isArray(memo.splits)) {
+    var target = !memo.processed;
+    memo.splits.forEach(function(sp){
+      if (!sp || !sp.dest || sp.dest === 'unsicher') return;
+      sp.processed = target;
+      sp.processedAt = target ? new Date().toISOString() : '';
+    });
+    syncMemoProcessedFromSplits(memo);
+  } else {
+    markProcessed(id, !memo.processed);
+  }
   save();
   renderAll();
+}
+function setSplitContextNote(memoId, splitIdx, value) {
+  var memo = S.memos.find(function(m){ return m.id === memoId; });
+  if (!memo || !Array.isArray(memo.splits) || !memo.splits[splitIdx]) return;
+  memo.splits[splitIdx].contextNote = value || '';
+  save();
 }
 function toggleMemoSelection(ev, id) {
   ev.stopPropagation();
@@ -683,7 +751,7 @@ function flattenForCopy(memo) {
   var text = T[memo.id] || '';
   if (memo.destination === 'split' && Array.isArray(memo.splits)) {
     return memo.splits.map(function(sp){
-      return { memo:memo, destination:sp.dest, content:sp.content||'', dateStr:memo.dateStr, timeStr:memo.timeStr, filename:memo.filename, contextNote:memo.contextNote };
+      return { memo:memo, splitIdx:i, destination:sp.dest, content:sp.content||'', dateStr:memo.dateStr, timeStr:memo.timeStr, filename:memo.filename, contextNote:sp.contextNote||'' };
     });
   }
   return [{ memo:memo, destination:memo.destination, content:text, dateStr:memo.dateStr, timeStr:memo.timeStr, filename:memo.filename, contextNote:memo.contextNote }];
@@ -723,7 +791,15 @@ function copySelected() {
   var out = buildBatchOutput(memos).trim();
   if (!out) { toast('Keine kopierbaren Inhalte in Auswahl'); return; }
   copyText(out).then(function(){
-    memos.forEach(function(m){ markProcessed(m.id, true); });
+    memos.forEach(function(m){
+      if (m.destination === 'split' && Array.isArray(m.splits)) {
+        m.splits.forEach(function(sp){
+          if (!sp || !sp.dest || sp.dest === 'unsicher') return;
+          sp.processed = true; sp.processedAt = new Date().toISOString();
+        });
+        syncMemoProcessedFromSplits(m);
+      } else markProcessed(m.id, true);
+    });
     save(); clearSelection(); toast('Auswahl kopiert');
   });
 }
@@ -732,7 +808,15 @@ function copySection(dest) {
   var out = buildBatchOutput(memos).trim();
   if (!out) { toast('In diesem Abschnitt nichts kopierbar'); return; }
   copyText(out).then(function(){
-    memos.forEach(function(m){ markProcessed(m.id, true); });
+    memos.forEach(function(m){
+      if (m.destination === 'split' && Array.isArray(m.splits)) {
+        m.splits.forEach(function(sp){
+          if (!sp || !sp.dest || sp.dest === 'unsicher') return;
+          sp.processed = true; sp.processedAt = new Date().toISOString();
+        });
+        syncMemoProcessedFromSplits(m);
+      } else markProcessed(m.id, true);
+    });
     save(); renderAll(); toast('Abschnitt kopiert');
   });
 }
